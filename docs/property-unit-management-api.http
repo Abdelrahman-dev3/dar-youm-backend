@@ -1,0 +1,69 @@
+@baseUrl = http://localhost/api
+@token = paste-sanctum-token-here
+@propertyId = paste-property-uuid-here
+@unitId = paste-unit-uuid-here
+
+### Login and copy data.token from the response
+POST {{baseUrl}}/login
+Accept: application/json
+Content-Type: application/json
+
+{
+  "email": "manager@example.com",
+  "password": "password"
+}
+
+### List properties to get a property id
+GET {{baseUrl}}/properties
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### BUG-001: update property
+PUT {{baseUrl}}/properties/{{propertyId}}
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "name": "Updated Property",
+  "address": "Updated address",
+  "city": "Riyadh",
+  "property_type": "villa",
+  "status": "maintenance",
+  "total_units": 8
+}
+
+### BUG-002: delete property
+DELETE {{baseUrl}}/properties/{{propertyId}}
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### List units to get a unit id
+GET {{baseUrl}}/units
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### List units for one property
+GET {{baseUrl}}/units?property_id={{propertyId}}
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### BUG-003: update unit
+PUT {{baseUrl}}/units/{{unitId}}
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "unit_number": "A-102",
+  "unit_name": "Updated Suite",
+  "unit_type": "1br",
+  "status": "cleaning",
+  "base_price": 325,
+  "currency": "SAR"
+}
+
+### BUG-004: delete unit
+DELETE {{baseUrl}}/units/{{unitId}}
+Accept: application/json
+Authorization: Bearer {{token}}
