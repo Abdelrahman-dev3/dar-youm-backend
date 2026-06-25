@@ -1,4 +1,6 @@
-@baseUrl = http://localhost/api
+# Previous backend base URL:
+# @baseUrl = https://dev.daryum.com/api
+@baseUrl = http://daryum-backend.city2tec.com/api
 @token = paste-sanctum-token-here
 @propertyId = paste-property-uuid-here
 @unitId = paste-unit-uuid-here

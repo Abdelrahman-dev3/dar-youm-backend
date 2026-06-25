@@ -5,7 +5,13 @@
 Base URL:
 
 ```text
-http://localhost/api
+http://daryum-backend.city2tec.com/api
+```
+
+Previous backend Base URL:
+
+```text
+https://dev.daryum.com/api
 ```
 
 في بيئة الإنتاج يتم استبدال `http://localhost/api` برابط الـ API الفعلي.
