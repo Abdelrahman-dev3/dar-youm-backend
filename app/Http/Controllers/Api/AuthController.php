@@ -111,6 +111,58 @@ class AuthController extends Controller
         ]);
     }
 
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'full_name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users,email,'.$user->id,
+            'phone' => 'nullable|string|max:20',
+            'company_name' => 'nullable|string|max:255',
+            'language_preference' => 'nullable|in:ar,en',
+        ]);
+
+        $user->update([
+            'full_name' => $validated['full_name'],
+            'email' => $validated['email'],
+            'phone' => $validated['phone'] ?? null,
+            'company_name' => $validated['company_name'] ?? null,
+            'language_preference' => $validated['language_preference'] ?? $user->language_preference,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'تم تحديث الملف الشخصي بنجاح',
+            'data' => $this->userPayload($user->fresh()),
+        ]);
+    }
+
+    public function updatePassword(Request $request)
+    {
+        $validated = $request->validate([
+            'current_password' => 'required|string',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        $user = $request->user();
+
+        if (!Hash::check($validated['current_password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['كلمة المرور الحالية غير صحيحة'],
+            ]);
+        }
+
+        $user->update([
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'تم تحديث كلمة المرور بنجاح',
+        ]);
+    }
+
     private function userPayload(User $user): array
     {
         return array_merge($user->toArray(), [

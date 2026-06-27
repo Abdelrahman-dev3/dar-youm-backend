@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -13,6 +14,7 @@ class Property extends Model
 
     protected $fillable = [
         'user_id',
+        'owner_id',
         'name',
         'name_ar',
         'description',
@@ -47,6 +49,11 @@ class Property extends Model
         return $this->belongsTo(User::class);
     }
 
+    public function owner()
+    {
+        return $this->belongsTo(User::class, 'owner_id');
+    }
+
     public function units()
     {
         return $this->hasMany(Unit::class);
@@ -60,8 +67,27 @@ class Property extends Model
 
     public function getOccupancyRateAttribute()
     {
-        if ($this->total_units === 0) return 0;
-        $occupied = $this->units()->where('status', 'occupied')->count();
-        return round(($occupied / $this->total_units) * 100, 2);
+        $totalUnits = $this->units()->count();
+
+        if ($totalUnits === 0) {
+            return 0;
+        }
+
+        $today = Carbon::today()->toDateString();
+        $occupiedUnitIds = $this->units()
+            ->where('status', 'occupied')
+            ->pluck('id')
+            ->merge(
+                $this->units()
+                    ->whereHas('reservations', function ($query) use ($today) {
+                        $query->whereIn('status', ['confirmed', 'checked_in'])
+                            ->whereDate('check_in_date', '<=', $today)
+                            ->whereDate('check_out_date', '>=', $today);
+                    })
+                    ->pluck('id')
+            )
+            ->unique();
+
+        return round(($occupiedUnitIds->count() / $totalUnits) * 100, 2);
     }
 }

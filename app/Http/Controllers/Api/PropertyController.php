@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Property;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
 
 class PropertyController extends Controller
 {
@@ -16,12 +16,13 @@ class PropertyController extends Controller
     {
         abort_unless($request->user()->hasPermission('canViewProperties'), 403);
 
-        $query = Property::with(['user', 'units']);
+        $query = Property::with(['user', 'owner', 'units.owner']);
 
         if (!$request->user()->isAdmin()) {
             if ($request->user()->isOwner()) {
                 $query->where(function ($q) use ($request) {
                     $q->where('user_id', $request->user()->id)
+                        ->orWhere('owner_id', $request->user()->id)
                         ->orWhereHas('units', fn ($unit) => $unit->where('owner_id', $request->user()->id));
                 });
             } else {
@@ -65,6 +66,7 @@ class PropertyController extends Controller
         abort_unless($request->user()->hasPermission('canManageProperties'), 403);
 
         $validated = $request->validate([
+            'owner_id' => ['nullable', 'uuid', Rule::exists('users', 'id')->where('role', 'owner')],
             'name' => 'required|string|max:255',
             'name_ar' => 'nullable|string|max:255',
             'description' => 'nullable|string',
@@ -87,13 +89,14 @@ class PropertyController extends Controller
         ]);
 
         $validated['user_id'] = $request->user()->id;
+        $validated['owner_id'] = $validated['owner_id'] ?? ($request->user()->isOwner() ? $request->user()->id : null);
 
         $property = Property::create($validated);
 
         return response()->json([
             'success' => true,
             'message' => 'تم إضافة العقار بنجاح',
-            'data' => $property->load(['user', 'units']),
+            'data' => $property->load(['user', 'owner', 'units.owner']),
         ], 201);
     }
 
@@ -104,7 +107,13 @@ class PropertyController extends Controller
     {
         abort_unless($request->user()->hasPermission('canViewProperties'), 403);
 
-        $property = Property::with(['user', 'units.reservations'])
+        $property = Property::with([
+            'user',
+            'owner',
+            'units.owner',
+            'units.reservations.housekeepingTasks',
+            'units.maintenanceTickets',
+        ])
             ->findOrFail($id);
 
         // Authorization check
@@ -139,6 +148,7 @@ class PropertyController extends Controller
         }
 
         $validated = $request->validate([
+            'owner_id' => ['nullable', 'uuid', Rule::exists('users', 'id')->where('role', 'owner')],
             'name' => 'sometimes|string|max:255',
             'name_ar' => 'nullable|string|max:255',
             'description' => 'nullable|string',
@@ -164,7 +174,7 @@ class PropertyController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'تم تحديث العقار بنجاح',
-            'data' => $property->fresh(['user', 'units']),
+            'data' => $property->fresh(['user', 'owner', 'units.owner']),
         ]);
     }
 
@@ -211,10 +221,22 @@ class PropertyController extends Controller
             ], 403);
         }
 
+        $occupiedUnits = $property->units->filter(function ($unit) {
+            if ($unit->status === 'occupied') {
+                return true;
+            }
+
+            return $unit->reservations->contains(function ($reservation) {
+                return in_array($reservation->status, ['confirmed', 'checked_in'], true)
+                    && optional($reservation->check_in_date)->startOfDay()->lte(now()->startOfDay())
+                    && optional($reservation->check_out_date)->startOfDay()->gte(now()->startOfDay());
+            });
+        })->count();
+
         $stats = [
             'total_units' => $property->units->count(),
             'available_units' => $property->units->where('status', 'available')->count(),
-            'occupied_units' => $property->units->where('status', 'occupied')->count(),
+            'occupied_units' => $occupiedUnits,
             'cleaning_units' => $property->units->where('status', 'cleaning')->count(),
             'maintenance_units' => $property->units->where('status', 'maintenance')->count(),
             'occupancy_rate' => $property->occupancy_rate,
@@ -243,6 +265,9 @@ class PropertyController extends Controller
         }
 
         return $request->user()->isOwner()
-            && $property->units()->where('owner_id', $request->user()->id)->exists();
+            && (
+                $property->owner_id === $request->user()->id
+                || $property->units()->where('owner_id', $request->user()->id)->exists()
+            );
     }
 }

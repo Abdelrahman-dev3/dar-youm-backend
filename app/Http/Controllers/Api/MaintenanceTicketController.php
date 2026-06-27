@@ -16,7 +16,7 @@ class MaintenanceTicketController extends Controller
             403
         );
 
-        $query = MaintenanceTicket::with(['unit.property', 'reporter', 'assignee']);
+        $query = MaintenanceTicket::with(['unit.property.owner', 'reporter', 'assignee']);
 
         if ($request->user()->hasPermission('canViewOwnTickets')) {
             $query->where(function ($q) use ($request) {
@@ -54,7 +54,7 @@ class MaintenanceTicketController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Maintenance ticket created successfully',
-            'data' => $ticket->load(['unit.property', 'reporter', 'assignee']),
+            'data' => $ticket->load(['unit.property.owner', 'reporter', 'assignee']),
         ], 201);
     }
 
@@ -69,7 +69,7 @@ class MaintenanceTicketController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $maintenanceTicket->load(['unit.property', 'reporter', 'assignee']),
+            'data' => $maintenanceTicket->load(['unit.property.owner', 'reporter', 'assignee']),
         ]);
     }
 
@@ -97,7 +97,7 @@ class MaintenanceTicketController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Maintenance ticket updated successfully',
-            'data' => $maintenanceTicket->fresh(['unit.property', 'reporter', 'assignee']),
+            'data' => $maintenanceTicket->fresh(['unit.property.owner', 'reporter', 'assignee']),
         ]);
     }
 

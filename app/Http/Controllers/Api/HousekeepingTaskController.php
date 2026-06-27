@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\HousekeepingTask;
+use App\Models\Reservation;
 use App\Models\Unit;
 use Illuminate\Http\Request;
 
@@ -40,13 +41,14 @@ class HousekeepingTaskController extends Controller
 
         $validated = $request->validate($this->rules());
         $this->authorizeUnit($request, $validated['unit_id']);
+        $this->authorizeReservationLink($validated);
 
         $task = HousekeepingTask::create($validated);
 
         return response()->json([
             'success' => true,
             'message' => 'Housekeeping task created successfully',
-            'data' => $task->load(['unit.property', 'reservation', 'assignee']),
+            'data' => $task->load(['unit.property.owner', 'reservation.unit.property.owner', 'assignee']),
         ], 201);
     }
 
@@ -61,7 +63,7 @@ class HousekeepingTaskController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $housekeepingTask->load(['unit.property', 'reservation', 'assignee']),
+            'data' => $housekeepingTask->load(['unit.property.owner', 'reservation.unit.property.owner', 'assignee']),
         ]);
     }
 
@@ -76,6 +78,8 @@ class HousekeepingTaskController extends Controller
             $this->authorizeUnit($request, $validated['unit_id']);
         }
 
+        $this->authorizeReservationLink(array_merge($housekeepingTask->only(['unit_id', 'reservation_id']), $validated));
+
         if (($validated['status'] ?? null) === 'in_progress' && !$housekeepingTask->started_at) {
             $validated['started_at'] = now();
         }
@@ -89,7 +93,7 @@ class HousekeepingTaskController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Housekeeping task updated successfully',
-            'data' => $housekeepingTask->fresh(['unit.property', 'reservation', 'assignee']),
+            'data' => $housekeepingTask->fresh(['unit.property.owner', 'reservation.unit.property.owner', 'assignee']),
         ]);
     }
 
@@ -156,6 +160,21 @@ class HousekeepingTaskController extends Controller
             $task->unit()->whereHas('property', fn ($q) => $q->where('user_id', $request->user()->id))->exists(),
             403,
             'You are not authorized to manage this housekeeping task.'
+        );
+    }
+
+    private function authorizeReservationLink(array $data): void
+    {
+        if (empty($data['reservation_id']) || empty($data['unit_id'])) {
+            return;
+        }
+
+        abort_unless(
+            Reservation::where('id', $data['reservation_id'])
+                ->where('unit_id', $data['unit_id'])
+                ->exists(),
+            422,
+            'Selected reservation must belong to the same unit.'
         );
     }
 }

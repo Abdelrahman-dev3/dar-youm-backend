@@ -32,7 +32,7 @@ class DashboardController extends Controller
         $reservations = $this->reservationsFor($request);
         $reservationRows = $reservations->get();
         $unitCount = (clone $units)->count();
-        $occupiedUnits = (clone $units)->where('status', 'occupied')->count();
+        $occupiedUnits = $this->occupiedUnitsCount($request);
         $totalRevenue = (float) $reservationRows->sum('total_amount');
         $averageDailyRate = $reservationRows->count() > 0 ? round((float) $reservationRows->avg('price_per_night'), 2) : 0;
 
@@ -82,6 +82,7 @@ class DashboardController extends Controller
 
         if ($user->isOwner()) {
             return $query->where('user_id', $user->id)
+                ->orWhere('owner_id', $user->id)
                 ->orWhereHas('units', fn (Builder $q) => $q->where('owner_id', $user->id));
         }
 
@@ -99,7 +100,9 @@ class DashboardController extends Controller
 
         if ($user->isOwner()) {
             return $query->where('owner_id', $user->id)
-                ->orWhereHas('property', fn (Builder $q) => $q->where('user_id', $user->id));
+                ->orWhereHas('property', fn (Builder $q) => $q
+                    ->where('user_id', $user->id)
+                    ->orWhere('owner_id', $user->id));
         }
 
         return $query->whereHas('property', fn (Builder $q) => $q->where('user_id', $user->id));
@@ -116,7 +119,9 @@ class DashboardController extends Controller
 
         if ($user->isOwner()) {
             return $query->whereHas('unit', fn (Builder $q) => $q->where('owner_id', $user->id)
-                ->orWhereHas('property', fn (Builder $property) => $property->where('user_id', $user->id)));
+                ->orWhereHas('property', fn (Builder $property) => $property
+                    ->where('user_id', $user->id)
+                    ->orWhere('owner_id', $user->id)));
         }
 
         return $query->whereHas('unit.property', fn (Builder $q) => $q->where('user_id', $user->id));
@@ -158,19 +163,48 @@ class DashboardController extends Controller
 
     private function unitStatuses(Request $request): array
     {
+        $totalUnits = (clone $this->unitsFor($request))->count();
         $counts = $this->unitsFor($request)
             ->selectRaw('status, count(*) as total')
             ->groupBy('status')
-            ->pluck('total', 'status')
-            ->all();
+            ->pluck('total', 'status');
+        $occupiedUnits = $this->occupiedUnitsCount($request);
+        $maintenanceUnits = (int) ($counts['maintenance'] ?? 0);
+        $cleaningUnits = (int) ($counts['cleaning'] ?? 0);
+        $blockedUnits = (int) ($counts['blocked'] ?? 0);
+        $availableUnits = max(0, $totalUnits - $occupiedUnits - $cleaningUnits - $maintenanceUnits - $blockedUnits);
 
         return [
-            'available' => (int) ($counts['available'] ?? 0),
-            'occupied' => (int) ($counts['occupied'] ?? 0),
-            'cleaning' => (int) ($counts['cleaning'] ?? 0),
-            'maintenance' => (int) ($counts['maintenance'] ?? 0),
-            'blocked' => (int) ($counts['blocked'] ?? 0),
+            'available' => $availableUnits,
+            'occupied' => $occupiedUnits,
+            'cleaning' => $cleaningUnits,
+            'maintenance' => $maintenanceUnits,
+            'blocked' => $blockedUnits,
         ];
+    }
+
+    private function occupiedUnitsCount(Request $request): int
+    {
+        return $this->occupiedUnitIds($request)->count();
+    }
+
+    private function occupiedUnitIds(Request $request)
+    {
+        $today = Carbon::today()->toDateString();
+        $statusOccupiedIds = $this->unitsFor($request)
+            ->where('status', 'occupied')
+            ->pluck('id');
+        $reservedOccupiedIds = $this->reservationsFor($request)
+            ->whereIn('status', ['confirmed', 'checked_in'])
+            ->whereDate('check_in_date', '<=', $today)
+            ->whereDate('check_out_date', '>=', $today)
+            ->pluck('unit_id');
+
+        return $statusOccupiedIds
+            ->merge($reservedOccupiedIds)
+            ->filter()
+            ->unique()
+            ->values();
     }
 
     private function monthlyRevenue(Request $request): array
@@ -201,10 +235,15 @@ class DashboardController extends Controller
 
     private function ownersFor(Request $request)
     {
-        $query = User::query()->where('role', 'owner')->withCount('ownedUnits');
+        $query = User::query()
+            ->where('role', 'owner')
+            ->withCount(['ownedProperties', 'ownedUnits']);
 
         if (!$request->user()->isAdmin()) {
-            $query->whereHas('ownedUnits.property', fn (Builder $q) => $q->where('user_id', $request->user()->id));
+            $query->where(function (Builder $q) use ($request) {
+                $q->whereHas('ownedProperties', fn (Builder $property) => $property->where('user_id', $request->user()->id))
+                    ->orWhereHas('ownedUnits.property', fn (Builder $property) => $property->where('user_id', $request->user()->id));
+            });
         }
 
         return $query->latest()->limit(10)->get(['id', 'full_name', 'email', 'phone', 'role', 'company_name', 'is_active']);

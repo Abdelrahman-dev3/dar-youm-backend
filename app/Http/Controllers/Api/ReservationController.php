@@ -19,7 +19,9 @@ class ReservationController extends Controller
             if ($request->user()->isOwner()) {
                 $query->whereHas('unit', function ($q) use ($request) {
                     $q->where('owner_id', $request->user()->id)
-                        ->orWhereHas('property', fn ($property) => $property->where('user_id', $request->user()->id));
+                        ->orWhereHas('property', fn ($property) => $property
+                            ->where('user_id', $request->user()->id)
+                            ->orWhere('owner_id', $request->user()->id));
                 });
             } else {
                 $query->whereHas('unit.property', fn ($q) => $q->where('user_id', $request->user()->id));
@@ -62,7 +64,7 @@ class ReservationController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $reservation->load(['unit.property', 'messages', 'housekeepingTasks']),
+            'data' => $reservation->load(['unit.property.owner', 'messages.user', 'housekeepingTasks.assignee']),
         ]);
     }
 
@@ -145,7 +147,9 @@ class ReservationController extends Controller
             Unit::where('id', $unitId)
                 ->where(function ($q) use ($request) {
                     $q->where('owner_id', $request->user()->id)
-                        ->orWhereHas('property', fn ($property) => $property->where('user_id', $request->user()->id));
+                        ->orWhereHas('property', fn ($property) => $property
+                            ->where('user_id', $request->user()->id)
+                            ->orWhere('owner_id', $request->user()->id));
                 })
                 ->exists(),
             403,
@@ -163,7 +167,9 @@ class ReservationController extends Controller
             $reservation->unit()
                 ->where(function ($q) use ($request) {
                     $q->where('owner_id', $request->user()->id)
-                        ->orWhereHas('property', fn ($property) => $property->where('user_id', $request->user()->id));
+                        ->orWhereHas('property', fn ($property) => $property
+                            ->where('user_id', $request->user()->id)
+                            ->orWhere('owner_id', $request->user()->id));
                 })
                 ->exists(),
             403,

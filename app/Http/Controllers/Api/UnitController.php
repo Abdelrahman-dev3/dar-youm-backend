@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Property;
 use App\Models\Unit;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class UnitController extends Controller
 {
@@ -13,13 +14,15 @@ class UnitController extends Controller
     {
         abort_unless($request->user()->hasPermission('canViewUnits'), 403);
 
-        $query = Unit::with(['property', 'owner']);
+        $query = Unit::with(['property.owner', 'owner']);
 
         if (!$request->user()->isAdmin()) {
             if ($request->user()->isOwner()) {
                 $query->where(function ($q) use ($request) {
                     $q->where('owner_id', $request->user()->id)
-                        ->orWhereHas('property', fn ($property) => $property->where('user_id', $request->user()->id));
+                        ->orWhereHas('property', fn ($property) => $property
+                            ->where('user_id', $request->user()->id)
+                            ->orWhere('owner_id', $request->user()->id));
                 });
             } else {
                 $query->whereHas('property', fn ($q) => $q->where('user_id', $request->user()->id));
@@ -46,13 +49,14 @@ class UnitController extends Controller
 
         $validated = $request->validate($this->rules($request));
         $this->authorizeProperty($request, $validated['property_id']);
+        $validated['owner_id'] = $validated['owner_id'] ?? Property::query()->find($validated['property_id'])?->owner_id;
 
         $unit = Unit::create($validated);
 
         return response()->json([
             'success' => true,
             'message' => 'Unit created successfully',
-            'data' => $unit->load(['property', 'owner']),
+            'data' => $unit->load(['property.owner', 'owner']),
         ], 201);
     }
 
@@ -64,7 +68,14 @@ class UnitController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $unit->load(['property', 'owner', 'reservations']),
+            'data' => $unit->load([
+                'property.owner',
+                'owner',
+                'reservations.housekeepingTasks',
+                'housekeepingTasks.assignee',
+                'maintenanceTickets.reporter',
+                'maintenanceTickets.assignee',
+            ]),
         ]);
     }
 
@@ -80,12 +91,16 @@ class UnitController extends Controller
             $this->authorizeProperty($request, $validated['property_id']);
         }
 
+        if (!array_key_exists('owner_id', $validated) && isset($validated['property_id'])) {
+            $validated['owner_id'] = Property::query()->find($validated['property_id'])?->owner_id;
+        }
+
         $unit->update($validated);
 
         return response()->json([
             'success' => true,
             'message' => 'Unit updated successfully',
-            'data' => $unit->fresh(['property', 'owner']),
+            'data' => $unit->fresh(['property.owner', 'owner']),
         ]);
     }
 
@@ -108,7 +123,7 @@ class UnitController extends Controller
 
         return [
             'property_id' => [$required, 'uuid', 'exists:properties,id'],
-            'owner_id' => ['nullable', 'uuid', 'exists:users,id'],
+            'owner_id' => ['nullable', 'uuid', Rule::exists('users', 'id')->where('role', 'owner')],
             'unit_number' => [$required, 'string', 'max:255'],
             'unit_name' => ['nullable', 'string', 'max:255'],
             'unit_name_ar' => ['nullable', 'string', 'max:255'],
@@ -147,7 +162,14 @@ class UnitController extends Controller
             return;
         }
 
-        if ($request->user()->isOwner() && $unit->owner_id === $request->user()->id) {
+        if ($request->user()->isOwner()) {
+            abort_unless(
+                $unit->owner_id === $request->user()->id
+                || $unit->property()->where('owner_id', $request->user()->id)->exists()
+                || $unit->property()->where('user_id', $request->user()->id)->exists(),
+                403,
+                'You are not authorized to manage this unit.'
+            );
             return;
         }
 

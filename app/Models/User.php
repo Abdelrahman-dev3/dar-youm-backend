@@ -44,6 +44,11 @@ class User extends Authenticatable
         return $this->hasMany(Property::class);
     }
 
+    public function ownedProperties()
+    {
+        return $this->hasMany(Property::class, 'owner_id');
+    }
+
     public function ownedUnits()
     {
         return $this->hasMany(Unit::class, 'owner_id');
