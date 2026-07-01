@@ -1,17 +1,19 @@
 <?php
 
-$frontendUrl = rtrim(env('FRONTEND_URL', 'https://daryum-app.city2tec.com'), '/');
-$backendUrl = rtrim(env('APP_URL', 'https://daryum-backend.city2tec.com'), '/');
+$frontendUrl = rtrim(env('FRONTEND_URL', 'http://daryum-app.city2tec.com'), '/');
+$backendUrl = rtrim(env('APP_URL', 'http://daryum-backend.city2tec.com'), '/');
 
 return [
     'paths' => ['api/*', 'sanctum/csrf-cookie'],
     'allowed_methods' => ['*'],
     'allowed_origins' => array_values(array_filter([
         // Previous server origins:
-        // 'https://daryum.com',
-        // 'https://www.daryum.com',
-        // 'https://dev.daryum.com',
-        // 'http://dev.daryum.com',
+        'http://demo.daryum.com',
+        'https://demo.daryum.com',
+        'https://daryum.com',
+        'https://www.daryum.com',
+        'https://dev.daryum.com',
+        'http://dev.daryum.com',
         $frontendUrl,
         $backendUrl,
         'http://localhost:5173',

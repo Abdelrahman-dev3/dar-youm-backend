@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Expense;
 use App\Models\HousekeepingTask;
 use App\Models\MaintenanceTicket;
 use App\Models\Property;
@@ -34,6 +35,8 @@ class DashboardController extends Controller
         $unitCount = (clone $units)->count();
         $occupiedUnits = $this->occupiedUnitsCount($request);
         $totalRevenue = (float) $reservationRows->sum('total_amount');
+        $totalExpenses = (float) $this->expensesFor($request)->sum('amount');
+        $netProfit = $totalRevenue - $totalExpenses;
         $averageDailyRate = $reservationRows->count() > 0 ? round((float) $reservationRows->avg('price_per_night'), 2) : 0;
 
         return response()->json([
@@ -44,6 +47,7 @@ class DashboardController extends Controller
                     'occupancy_rate' => $unitCount > 0 ? round(($occupiedUnits / $unitCount) * 100, 1) : 0,
                     'average_daily_rate' => $averageDailyRate,
                     'revpar' => $unitCount > 0 ? round($totalRevenue / $unitCount, 2) : 0,
+                    'net_profit' => round($netProfit, 2),
                     'properties_count' => $this->propertiesFor($request)->count(),
                     'units_count' => $unitCount,
                     'reservations_count' => $reservationRows->count(),
@@ -65,8 +69,18 @@ class DashboardController extends Controller
                     'service_fees' => (float) $reservationRows->sum('service_fee'),
                     'vat_amount' => (float) $reservationRows->sum('vat_amount'),
                     'cleaning_fees' => (float) $reservationRows->sum('cleaning_fee'),
+                    'total_expenses' => round($totalExpenses, 2),
+                    'net_profit' => round($netProfit, 2),
                 ],
                 'owners' => $user->hasPermission('canViewOwners') ? $this->ownersFor($request) : [],
+                'staff' => [
+                    'housekeeping' => $user->hasPermission('canViewHousekeeping') || $user->hasPermission('canManageHousekeeping')
+                        ? $this->staffFor($request, ['housekeeping_supervisor', 'cleaner'])
+                        : [],
+                    'maintenance' => $user->hasPermission('canViewMaintenance') || $user->hasPermission('canManageMaintenance')
+                        ? $this->staffFor($request, ['maintenance_staff'])
+                        : [],
+                ],
             ],
         ]);
     }
@@ -141,6 +155,25 @@ class DashboardController extends Controller
         }
 
         return $query->whereHas('unit.property', fn (Builder $q) => $q->where('user_id', $user->id));
+    }
+
+    private function expensesFor(Request $request): Builder
+    {
+        $query = Expense::query();
+        $user = $request->user();
+
+        if ($user->isAdmin()) {
+            return $query;
+        }
+
+        if ($user->isOwner()) {
+            return $query->whereHas('property', fn (Builder $q) => $q
+                ->where('user_id', $user->id)
+                ->orWhere('owner_id', $user->id)
+                ->orWhereHas('units', fn (Builder $unit) => $unit->where('owner_id', $user->id)));
+        }
+
+        return $query->whereHas('property', fn (Builder $q) => $q->where('user_id', $user->id));
     }
 
     private function maintenanceFor(Request $request): Builder
@@ -246,7 +279,23 @@ class DashboardController extends Controller
             });
         }
 
-        return $query->latest()->limit(10)->get(['id', 'full_name', 'email', 'phone', 'role', 'company_name', 'is_active']);
+        return $query->latest()->limit(10)->get(['id', 'full_name', 'email', 'phone', 'role', 'owner_reference_number', 'company_name', 'is_active']);
+    }
+
+    private function staffFor(Request $request, array $roles)
+    {
+        $query = User::query()
+            ->whereIn('role', $roles)
+            ->where('is_active', true);
+
+        if (!$request->user()->isAdmin()) {
+            $query->where(function (Builder $builder) use ($request) {
+                $builder->whereHas('housekeepingTasks.unit.property', fn (Builder $property) => $property->where('user_id', $request->user()->id))
+                    ->orWhereHas('maintenanceTickets.unit.property', fn (Builder $property) => $property->where('user_id', $request->user()->id));
+            });
+        }
+
+        return $query->orderBy('full_name')->get(['id', 'full_name', 'email', 'phone', 'role', 'is_active']);
     }
 
     private function messagesCount(Request $request): int

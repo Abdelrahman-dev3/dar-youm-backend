@@ -47,7 +47,7 @@ return [
         'canManageMaintenance' => true,
         'canViewMaintenance' => true,
         'canViewOwnTickets' => false,
-        'canManageFinance' => false,
+        'canManageFinance' => true,
         'canViewFinance' => true,
         'canViewReports' => true,
         'canViewOwnStatements' => false,

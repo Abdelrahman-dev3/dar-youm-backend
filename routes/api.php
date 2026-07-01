@@ -2,9 +2,12 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\ExpenseCategoryController;
+use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\HousekeepingTaskController;
 use App\Http\Controllers\Api\MaintenanceTicketController;
 use App\Http\Controllers\Api\MessageController;
+use App\Http\Controllers\Api\OwnerController;
 use App\Http\Controllers\Api\PropertyController;
 use App\Http\Controllers\Api\ReservationController;
 use App\Http\Controllers\Api\UnitController;
@@ -36,4 +39,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('messages', MessageController::class);
     Route::apiResource('housekeeping-tasks', HousekeepingTaskController::class);
     Route::apiResource('maintenance-tickets', MaintenanceTicketController::class);
+    Route::apiResource('owners', OwnerController::class);
+    Route::apiResource('expense-categories', ExpenseCategoryController::class);
+    Route::apiResource('expenses', ExpenseController::class);
 });

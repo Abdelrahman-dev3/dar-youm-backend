@@ -59,6 +59,11 @@ class Property extends Model
         return $this->hasMany(Unit::class);
     }
 
+    public function expenses()
+    {
+        return $this->hasMany(Expense::class);
+    }
+
     // Computed attributes
     public function getAvailableUnitsCountAttribute()
     {

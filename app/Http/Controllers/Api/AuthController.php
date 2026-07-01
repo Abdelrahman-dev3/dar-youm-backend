@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
@@ -26,15 +27,20 @@ class AuthController extends Controller
             'language_preference' => 'nullable|in:ar,en',
         ]);
 
-        $user = User::create([
-            'full_name' => $request->full_name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'phone' => $request->phone,
-            'role' => $request->role ?? 'property_manager',
-            'company_name' => $request->company_name,
-            'language_preference' => $request->language_preference ?? 'ar',
-        ]);
+        $role = $request->role ?? 'property_manager';
+
+        $user = DB::transaction(function () use ($request, $role) {
+            return User::create([
+                'full_name' => $request->full_name,
+                'email' => $request->email,
+                'password' => Hash::make($request->password),
+                'phone' => $request->phone,
+                'role' => $role,
+                'owner_reference_number' => $role === 'owner' ? $this->nextOwnerReferenceNumber() : null,
+                'company_name' => $request->company_name,
+                'language_preference' => $request->language_preference ?? 'ar',
+            ]);
+        });
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -168,5 +174,13 @@ class AuthController extends Controller
         return array_merge($user->toArray(), [
             'permissions' => $user->permissions(),
         ]);
+    }
+
+    private function nextOwnerReferenceNumber(): int
+    {
+        return (int) User::query()
+            ->where('role', 'owner')
+            ->lockForUpdate()
+            ->max('owner_reference_number') + 1;
     }
 }

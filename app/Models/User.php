@@ -19,6 +19,7 @@ class User extends Authenticatable
         'password',
         'phone',
         'role',
+        'owner_reference_number',
         'avatar_url',
         'company_name',
         'language_preference',
@@ -35,6 +36,7 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'last_login_at' => 'datetime',
         'is_active' => 'boolean',
+        'owner_reference_number' => 'integer',
         'password' => 'hashed',
     ];
 
@@ -62,6 +64,16 @@ class User extends Authenticatable
     public function maintenanceTickets()
     {
         return $this->hasMany(MaintenanceTicket::class, 'assigned_to');
+    }
+
+    public function expenses()
+    {
+        return $this->hasMany(Expense::class, 'created_by');
+    }
+
+    public function expenseCategories()
+    {
+        return $this->hasMany(ExpenseCategory::class, 'created_by');
     }
 
     // Helper methods
