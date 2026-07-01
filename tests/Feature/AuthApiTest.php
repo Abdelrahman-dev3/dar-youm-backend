@@ -66,6 +66,16 @@ class AuthApiTest extends TestCase
             ]);
     }
 
+    public function test_protected_api_routes_require_authentication_with_json_401(): void
+    {
+        $response = $this->getJson('/api/expense-categories');
+
+        $response->assertUnauthorized()
+            ->assertExactJson([
+                'message' => 'Unauthenticated.',
+            ]);
+    }
+
     public function test_inactive_user_cannot_login(): void
     {
         User::factory()->create([

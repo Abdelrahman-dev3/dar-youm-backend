@@ -53,7 +53,7 @@ return [
         'canViewOwnStatements' => false,
         'canManageUsers' => false,
         'canManageSettings' => true,
-        'canManageOwners' => false,
+        'canManageOwners' => true,
         'canViewOwners' => true,
     ],
 
