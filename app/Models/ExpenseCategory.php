@@ -14,6 +14,8 @@ class ExpenseCategory extends Model
     protected $fillable = [
         'name',
         'name_ar',
+        'icon',
+        'color',
         'description',
         'is_active',
         'created_by',

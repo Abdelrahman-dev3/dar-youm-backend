@@ -52,7 +52,7 @@ class ExpenseController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Expense created successfully',
-            'data' => $expense->load(['property.owner', 'category', 'creator']),
+            'data' => $expense->load(['property.owner', 'category', 'creator', 'unit']),
         ], 201);
     }
 
@@ -63,7 +63,7 @@ class ExpenseController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $expense->load(['property.owner', 'category', 'creator']),
+            'data' => $expense->load(['property.owner', 'category', 'creator', 'unit']),
         ]);
     }
 
@@ -83,7 +83,7 @@ class ExpenseController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Expense updated successfully',
-            'data' => $expense->fresh(['property.owner', 'category', 'creator']),
+            'data' => $expense->fresh(['property.owner', 'category', 'creator', 'unit']),
         ]);
     }
 
@@ -105,11 +105,14 @@ class ExpenseController extends Controller
 
         return [
             'property_id' => [$required, 'uuid', 'exists:properties,id'],
+            'unit_id' => ['nullable', 'uuid', 'exists:units,id'],
             'expense_category_id' => [$required, 'uuid', 'exists:expense_categories,id'],
             'description' => ['nullable', 'string', 'max:255'],
             'amount' => [$required, 'numeric', 'min:0'],
             'expense_date' => [$required, 'date'],
             'currency' => ['nullable', 'string', 'size:3'],
+            'payment_method' => ['nullable', 'string', 'in:cash,card,bank_transfer,check'],
+            'supplier' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string'],
         ];
     }

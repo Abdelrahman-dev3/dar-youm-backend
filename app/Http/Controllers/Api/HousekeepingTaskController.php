@@ -19,10 +19,12 @@ class HousekeepingTaskController extends Controller
 
         $query = HousekeepingTask::with(['unit.property', 'reservation', 'assignee']);
 
-        if ($request->user()->hasPermission('canViewOwnTasks')) {
-            $query->where('assigned_to', $request->user()->id);
-        } elseif (!$request->user()->isAdmin()) {
-            $query->whereHas('unit.property', fn ($q) => $q->where('user_id', $request->user()->id));
+        if (!$request->user()->isAdmin()) {
+            if ($request->user()->hasPermission('canManageHousekeeping') || $request->user()->hasPermission('canViewHousekeeping')) {
+                $query->whereHas('unit.property', fn ($q) => $q->where('user_id', $request->user()->id));
+            } elseif ($request->user()->hasPermission('canViewOwnTasks')) {
+                $query->where('assigned_to', $request->user()->id);
+            }
         }
 
         if ($request->filled('status')) {
@@ -147,12 +149,21 @@ class HousekeepingTaskController extends Controller
 
     private function authorizeTask(Request $request, HousekeepingTask $task): void
     {
-        if ($request->user()->hasPermission('canViewOwnTasks')) {
-            abort_unless($task->assigned_to === $request->user()->id, 403, 'You are not authorized to manage this housekeeping task.');
+        if ($request->user()->isAdmin()) {
             return;
         }
 
-        if ($request->user()->isAdmin()) {
+        if ($request->user()->hasPermission('canManageHousekeeping') || $request->user()->hasPermission('canViewHousekeeping')) {
+            abort_unless(
+                $task->unit()->whereHas('property', fn ($q) => $q->where('user_id', $request->user()->id))->exists(),
+                403,
+                'You are not authorized to manage this housekeeping task.'
+            );
+            return;
+        }
+
+        if ($request->user()->hasPermission('canViewOwnTasks')) {
+            abort_unless($task->assigned_to === $request->user()->id, 403, 'You are not authorized to manage this housekeeping task.');
             return;
         }
 

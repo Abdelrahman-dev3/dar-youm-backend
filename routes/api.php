@@ -42,4 +42,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('owners', OwnerController::class);
     Route::apiResource('expense-categories', ExpenseCategoryController::class);
     Route::apiResource('expenses', ExpenseController::class);
+    Route::post('upload', function (Request $request) {
+        $request->validate([
+            'file' => 'required|image|max:10240',
+        ]);
+        $path = $request->file('file')->store('uploads', 'public');
+        return response()->json([
+            'success' => true,
+            'url' => asset('storage/' . $path),
+        ]);
+    });
 });

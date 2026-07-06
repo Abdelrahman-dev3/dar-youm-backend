@@ -13,6 +13,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 class DashboardController extends Controller
 {
@@ -32,11 +33,17 @@ class DashboardController extends Controller
         $units = $this->unitsFor($request);
         $reservations = $this->reservationsFor($request);
         $reservationRows = $reservations->get();
+        $expenseRows = $this->expensesFor($request)->with(['property.owner', 'unit', 'category'])->get();
         $unitCount = (clone $units)->count();
         $occupiedUnits = $this->occupiedUnitsCount($request);
         $totalRevenue = (float) $reservationRows->sum('total_amount');
-        $totalExpenses = (float) $this->expensesFor($request)->sum('amount');
-        $netProfit = $totalRevenue - $totalExpenses;
+        $serviceFees = (float) $reservationRows->sum('service_fee');
+        $vatAmount = (float) $reservationRows->sum('vat_amount');
+        $totalExpenses = (float) $expenseRows->sum('amount');
+        $netProfit = $totalRevenue - $totalExpenses - $serviceFees - $vatAmount;
+        $ownerReceivables = max(0, $totalRevenue - $serviceFees - $vatAmount);
+        $financeTrends = $this->financeTrends($reservationRows, $expenseRows);
+        $financeTransactions = $this->financeTransactions($reservationRows, $expenseRows);
         $averageDailyRate = $reservationRows->count() > 0 ? round((float) $reservationRows->avg('price_per_night'), 2) : 0;
 
         return response()->json([
@@ -64,13 +71,19 @@ class DashboardController extends Controller
                     'maintenance' => $this->maintenanceFor($request)->latest()->limit(3)->get(),
                 ],
                 'finance' => [
+                    'total_income' => round($totalRevenue, 2),
+                    'commissions_paid' => round($serviceFees, 2),
+                    'owner_receivables' => round($ownerReceivables, 2),
+                    'transactions_count' => count($financeTransactions),
                     'paid_revenue' => (float) $reservationRows->where('payment_status', 'paid')->sum('total_amount'),
                     'unpaid_revenue' => (float) $reservationRows->whereIn('payment_status', ['unpaid', 'partial'])->sum('total_amount'),
-                    'service_fees' => (float) $reservationRows->sum('service_fee'),
-                    'vat_amount' => (float) $reservationRows->sum('vat_amount'),
+                    'service_fees' => $serviceFees,
+                    'vat_amount' => $vatAmount,
                     'cleaning_fees' => (float) $reservationRows->sum('cleaning_fee'),
                     'total_expenses' => round($totalExpenses, 2),
                     'net_profit' => round($netProfit, 2),
+                    'trends' => $financeTrends,
+                    'transactions' => $financeTransactions,
                 ],
                 'owners' => $user->hasPermission('canViewOwners') ? $this->ownersFor($request) : [],
                 'staff' => [
@@ -159,7 +172,7 @@ class DashboardController extends Controller
 
     private function expensesFor(Request $request): Builder
     {
-        $query = Expense::query();
+        $query = Expense::with(['property.owner', 'unit', 'category']);
         $user = $request->user();
 
         if ($user->isAdmin()) {
@@ -192,6 +205,177 @@ class DashboardController extends Controller
         }
 
         return $query->whereHas('unit.property', fn (Builder $q) => $q->where('user_id', $user->id));
+    }
+
+    private function financeTrends(Collection $reservations, Collection $expenses): array
+    {
+        $currentStart = Carbon::now()->startOfMonth();
+        $currentEnd = Carbon::now()->endOfMonth();
+        $previousStart = Carbon::now()->subMonthNoOverflow()->startOfMonth();
+        $previousEnd = Carbon::now()->subMonthNoOverflow()->endOfMonth();
+
+        $currentReservations = $reservations->filter(fn ($reservation) => $this->dateValue($reservation->check_in_date)?->between($currentStart, $currentEnd));
+        $previousReservations = $reservations->filter(fn ($reservation) => $this->dateValue($reservation->check_in_date)?->between($previousStart, $previousEnd));
+        $currentExpenses = $expenses->filter(fn ($expense) => $this->dateValue($expense->expense_date)?->between($currentStart, $currentEnd));
+        $previousExpenses = $expenses->filter(fn ($expense) => $this->dateValue($expense->expense_date)?->between($previousStart, $previousEnd));
+
+        $currentIncome = (float) $currentReservations->sum('total_amount');
+        $previousIncome = (float) $previousReservations->sum('total_amount');
+        $currentCommissions = (float) $currentReservations->sum('service_fee');
+        $previousCommissions = (float) $previousReservations->sum('service_fee');
+        $currentVat = (float) $currentReservations->sum('vat_amount');
+        $previousVat = (float) $previousReservations->sum('vat_amount');
+        $currentOwnerReceivables = max(0, $currentIncome - $currentCommissions - $currentVat);
+        $previousOwnerReceivables = max(0, $previousIncome - $previousCommissions - $previousVat);
+        $currentNetProfit = $currentIncome - (float) $currentExpenses->sum('amount') - $currentCommissions - $currentVat;
+        $previousNetProfit = $previousIncome - (float) $previousExpenses->sum('amount') - $previousCommissions - $previousVat;
+
+        return [
+            'total_income' => $this->trendPayload($currentIncome, $previousIncome),
+            'commissions_paid' => $this->trendPayload($currentCommissions, $previousCommissions),
+            'owner_receivables' => $this->trendPayload($currentOwnerReceivables, $previousOwnerReceivables),
+            'net_profit' => $this->trendPayload($currentNetProfit, $previousNetProfit),
+        ];
+    }
+
+    private function financeTransactions(Collection $reservations, Collection $expenses): array
+    {
+        $transactions = [];
+
+        foreach ($reservations as $reservation) {
+            $unitName = $reservation->unit?->unit_name ?: $reservation->unit?->unit_number ?: 'وحدة';
+            $propertyName = $reservation->unit?->property?->name_ar ?: $reservation->unit?->property?->name ?: '';
+            $channel = $this->bookingSourceLabel($reservation->booking_source);
+            $reference = $reservation->booking_reference ?: $reservation->id;
+            $date = $this->dateValue($reservation->check_in_date) ?: $this->dateValue($reservation->created_at) ?: Carbon::now();
+            $vatAmount = (float) ($reservation->vat_amount ?? 0);
+            $serviceFee = (float) ($reservation->service_fee ?? 0);
+
+            $transactions[] = [
+                'transaction_key' => $date->format('Ymd') . '-income-' . $reservation->id,
+                'date' => $date->toDateString(),
+                'sort_date' => $date->timestamp,
+                'type' => 'income',
+                'type_label' => 'إيراد',
+                'description' => trim("حجز - {$reservation->guest_name} - {$unitName} {$propertyName}"),
+                'amount' => round((float) $reservation->total_amount, 2),
+                'vat_amount' => round($vatAmount, 2),
+                'channel' => $channel,
+                'status' => $reservation->payment_status,
+                'status_label' => $this->paymentStatusLabel($reservation->payment_status),
+                'reference' => $reference,
+            ];
+
+            if ($serviceFee > 0) {
+                $transactions[] = [
+                    'transaction_key' => $date->format('Ymd') . '-commission-' . $reservation->id,
+                    'date' => $date->toDateString(),
+                    'sort_date' => $date->timestamp + 1,
+                    'type' => 'commission',
+                    'type_label' => 'عمولة',
+                    'description' => trim("عمولة {$channel} - {$reference}"),
+                    'amount' => round($serviceFee, 2),
+                    'vat_amount' => round($serviceFee * 0.15, 2),
+                    'channel' => $channel,
+                    'status' => $reservation->payment_status === 'paid' ? 'completed' : 'pending',
+                    'status_label' => $reservation->payment_status === 'paid' ? 'مكتمل' : 'معلق',
+                    'reference' => $reference,
+                ];
+            }
+        }
+
+        foreach ($expenses as $expense) {
+            $date = $this->dateValue($expense->expense_date) ?: $this->dateValue($expense->created_at) ?: Carbon::now();
+            $channel = $this->paymentMethodLabel($expense->payment_method);
+            $label = $expense->category?->name_ar ?: $expense->category?->name ?: 'مصروف';
+            $description = trim($expense->description ?: $label);
+
+            if ($expense->supplier) {
+                $description = "{$description} - {$expense->supplier}";
+            }
+
+            $transactions[] = [
+                'transaction_key' => $date->format('Ymd') . '-expense-' . $expense->id,
+                'date' => $date->toDateString(),
+                'sort_date' => $date->timestamp + 2,
+                'type' => 'payment',
+                'type_label' => 'دفعة',
+                'description' => $description,
+                'amount' => round((float) $expense->amount, 2),
+                'vat_amount' => 0,
+                'channel' => $channel,
+                'status' => 'completed',
+                'status_label' => 'مكتمل',
+                'reference' => $expense->id,
+            ];
+        }
+
+        usort($transactions, fn (array $first, array $second) => $second['sort_date'] <=> $first['sort_date']);
+
+        return collect($transactions)
+            ->values()
+            ->map(function (array $transaction, int $index) {
+                $transaction['transaction_no'] = sprintf('TXN-%s-%03d', substr($transaction['date'], 0, 4), $index + 1);
+                unset($transaction['sort_date']);
+
+                return $transaction;
+            })
+            ->all();
+    }
+
+    private function trendPayload(float $current, float $previous): array
+    {
+        $change = $previous > 0 ? round((($current - $previous) / $previous) * 100, 1) : ($current > 0 ? 100 : 0);
+
+        return [
+            'current' => round($current, 2),
+            'previous' => round($previous, 2),
+            'change' => $change,
+            'direction' => $change >= 0 ? 'up' : 'down',
+        ];
+    }
+
+    private function bookingSourceLabel(?string $source): string
+    {
+        return match ($source) {
+            'airbnb' => 'Airbnb',
+            'booking_com' => 'Booking.com',
+            'agoda' => 'Agoda',
+            'vrbo' => 'VRBO',
+            'direct' => 'مباشر',
+            default => 'أخرى',
+        };
+    }
+
+    private function paymentMethodLabel(?string $method): string
+    {
+        return match ($method) {
+            'cash' => 'نقدي',
+            'card' => 'بطاقة',
+            'bank_transfer' => 'تحويل بنكي',
+            'check' => 'شيك',
+            default => 'غير محدد',
+        };
+    }
+
+    private function paymentStatusLabel(?string $status): string
+    {
+        return match ($status) {
+            'unpaid' => 'معلق',
+            'partial' => 'جزئي',
+            'paid' => 'مكتمل',
+            'refunded' => 'مسترد',
+            default => 'غير محدد',
+        };
+    }
+
+    private function dateValue($value): ?Carbon
+    {
+        if (!$value) {
+            return null;
+        }
+
+        return $value instanceof Carbon ? $value->copy() : Carbon::parse($value);
     }
 
     private function unitStatuses(Request $request): array

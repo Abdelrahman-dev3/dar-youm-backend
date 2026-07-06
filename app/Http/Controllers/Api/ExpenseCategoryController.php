@@ -92,6 +92,8 @@ class ExpenseCategoryController extends Controller
         return [
             'name' => [$required, 'string', 'max:255'],
             'name_ar' => ['nullable', 'string', 'max:255'],
+            'icon' => ['nullable', 'string', 'max:100'],
+            'color' => ['nullable', 'string', 'in:slate,teal,blue,green,orange,red,purple'],
             'description' => ['nullable', 'string'],
             'is_active' => ['nullable', 'boolean'],
         ];

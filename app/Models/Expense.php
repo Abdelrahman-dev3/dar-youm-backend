@@ -13,12 +13,15 @@ class Expense extends Model
 
     protected $fillable = [
         'property_id',
+        'unit_id',
         'expense_category_id',
         'created_by',
         'description',
         'amount',
         'expense_date',
         'currency',
+        'payment_method',
+        'supplier',
         'notes',
     ];
 
@@ -40,5 +43,10 @@ class Expense extends Model
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function unit()
+    {
+        return $this->belongsTo(Unit::class);
     }
 }
